@@ -1,4 +1,97 @@
 name: Android CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      module:
+        description: 'Select module to build'
+        required: true
+        default: 'Qwen/v3'
+        type: choice
+        options:
+          - Qwen/v3
+          - QwenVL
+          - MiniCPM
+          - Hunyuan_MT
+          - Llama_ONNX
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ${{ inputs.module || 'Qwen/v3' }}
+            .github
+          sparse-checkout-cone-mode: false
+      
+      - name: Set module path
+        id: module-path
+        run: |
+          MODULE="${{ inputs.module || 'Qwen/v3' }}"
+          echo "path=$MODULE" >> $GITHUB_OUTPUT
+      
+      - name: Check module directory
+        id: check-module
+        run: |
+          MODULE_PATH="${{ steps.module-path.outputs.path }}"
+          if [ -d "$MODULE_PATH" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Checkout full repo
+        if: steps.check-module.outputs.exists == 'false'
+        uses: actions/checkout@v4
+      
+      - name: Prepare module
+        run: |
+          MODULE_PATH="${{ steps.module-path.outputs.path }}"
+          if [ ! -f "build.gradle" ] && [ -d "$MODULE_PATH" ]; then
+            cp -r "$MODULE_PATH"/* .
+            cp -r "$MODULE_PATH"/.* . 2>/dev/null || true
+          fi
+          ls -la
+      
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: APK-${{ steps.module-path.outputs.path }}
+          path: |
+            **/*.apk
+          retention-days: 7name: Android CI
 on:
   workflow_dispatch:
     inputs:
